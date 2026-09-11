@@ -7,9 +7,12 @@ import { ToastProvider } from "./context/ToastContext.jsx";
 import "leaflet/dist/leaflet.css";
 import "./index.css";
 
+const routerBasename =
+  import.meta.env.BASE_URL === "/" ? undefined : import.meta.env.BASE_URL.replace(/\/$/, "");
+
 ReactDOM.createRoot(document.getElementById("root")).render(
   <React.StrictMode>
-    <BrowserRouter>
+    <BrowserRouter basename={routerBasename}>
       <ToastProvider>
         <AuthProvider>
           <App />
