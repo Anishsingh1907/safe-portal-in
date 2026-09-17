@@ -6,5 +6,11 @@ export default defineConfig({
   base: process.env.GITHUB_PAGES === "true" ? "/safe-portal-in/" : "/",
   server: {
     port: 5173,
+    proxy: {
+      "/api": {
+        target: "http://localhost:5000",
+        changeOrigin: true,
+      },
+    },
   },
 });

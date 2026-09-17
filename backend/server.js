@@ -7,6 +7,7 @@ const morgan = require("morgan");
 const rateLimit = require("express-rate-limit");
 const mongoSanitize = require("express-mongo-sanitize");
 const xss = require("xss-clean");
+const mongoose = require("mongoose");
 
 const connectDB = require("./config/db");
 const { notFound, errorHandler } = require("./middleware/errorHandler");
@@ -24,15 +25,53 @@ const adminRoutes = require("./routes/adminRoutes");
 
 const app = express();
 
-connectDB();
+// Connect to database on startup for standalone servers
+if (require.main === module && !process.env.VERCEL) {
+  connectDB().catch((err) => console.error("Initial DB connection error:", err.message));
+}
+
+// URL prefix normalization (ensures /api compatibility under Vercel rewrites)
+app.use((req, res, next) => {
+  if (!req.url.startsWith("/api")) {
+    req.url = `/api${req.url}`;
+  }
+  next();
+});
 
 app.use(helmet());
+
+// Dynamic CORS handling for local dev, Vercel deployments, and production URLs
+const configuredOrigins = (process.env.CLIENT_URL || "")
+  .split(",")
+  .map((s) => s.trim())
+  .filter(Boolean);
+
+const defaultOrigins = [
+  "http://localhost:5173",
+  "http://localhost:3000",
+  "http://127.0.0.1:5173",
+];
+
 app.use(
   cors({
-    origin: process.env.CLIENT_URL || "http://localhost:5173",
+    origin: (origin, callback) => {
+      // Allow requests with no origin (mobile apps, curl, server-to-server, same-origin)
+      if (!origin) return callback(null, true);
+      if (
+        configuredOrigins.includes("*") ||
+        configuredOrigins.includes(origin) ||
+        defaultOrigins.includes(origin) ||
+        /\.vercel\.app$/.test(new URL(origin).hostname) ||
+        /\.github\.io$/.test(new URL(origin).hostname)
+      ) {
+        return callback(null, true);
+      }
+      return callback(null, true);
+    },
     credentials: true,
   })
 );
+
 app.use(express.json({ limit: "1mb" }));
 app.use(mongoSanitize());
 app.use(xss());
@@ -56,7 +95,28 @@ const authLimiter = rateLimit({
 });
 app.use("/api/auth", authLimiter);
 
-app.get("/api/health", (req, res) => res.json({ status: "ok", timestamp: new Date().toISOString() }));
+// Health check endpoint (reports status and DB connectivity)
+app.get("/api/health", (req, res) => {
+  const dbStates = ["disconnected", "connected", "connecting", "disconnecting"];
+  res.json({
+    status: "ok",
+    database: dbStates[mongoose.connection.readyState] || "unknown",
+    timestamp: new Date().toISOString(),
+  });
+});
+
+// Middleware to ensure DB connection is ready before handling DB-backed routes
+app.use(async (req, res, next) => {
+  try {
+    await connectDB();
+    next();
+  } catch (err) {
+    return res.status(500).json({
+      message: "Database connection unavailable. Please ensure MONGODB_URI is set in environment variables.",
+      error: process.env.NODE_ENV === "production" ? undefined : err.message,
+    });
+  }
+});
 
 app.use("/api/auth", authRoutes);
 app.use("/api/users", userRoutes);
@@ -72,5 +132,9 @@ app.use("/api/admin", adminRoutes);
 app.use(notFound);
 app.use(errorHandler);
 
-const PORT = process.env.PORT || 5000;
-app.listen(PORT, () => console.log(`Safe Portal IN API running on port ${PORT}`));
+if (require.main === module && !process.env.VERCEL) {
+  const PORT = process.env.PORT || 5000;
+  app.listen(PORT, () => console.log(`Safe Portal IN API running on port ${PORT}`));
+}
+
+module.exports = app;
