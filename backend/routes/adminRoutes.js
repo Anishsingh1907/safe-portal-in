@@ -4,7 +4,10 @@ const { getOverview } = require("../controllers/adminController");
 
 const router = express.Router();
 
-router.use(protect, requireAdmin);
+// Allow public overview stats for landing page banner
 router.get("/overview", getOverview);
+
+// Protect all further administrative routes
+router.use(protect, requireAdmin);
 
 module.exports = router;
